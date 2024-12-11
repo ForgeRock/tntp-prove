@@ -30,7 +30,6 @@ import java.util.regex.Pattern;
 
 import javax.inject.Inject;
 
-import org.apache.commons.text.RandomStringGenerator;
 import org.forgerock.json.JsonValue;
 import org.forgerock.openam.annotations.sm.Attribute;
 import org.forgerock.openam.auth.node.api.AbstractDecisionNode;
@@ -72,22 +71,29 @@ import org.slf4j.LoggerFactory;
 import org.forgerock.util.i18n.PreferredLocales;
 import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Action.ActionBuilder;
-
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.net.URI;
+import org.json.JSONObject;
+import org.json.JSONArray;
+import java.util.UUID;
 
 /**
  * A node that checks to see if zero-page login headers have specified username and whether that username is in a group
  * permitted to use zero-page login headers.
  */
-@Node.Metadata(outcomeProvider  = AbstractDecisionNode.OutcomeProvider.class,
+@Node.Metadata(outcomeProvider  = proveTrustNode.OutcomeProvider.class,
                configClass      = proveTrustNode.Config.class)
 public class proveTrustNode extends AbstractDecisionNode {
 
-    private final Pattern DN_PATTERN = Pattern.compile("^[a-zA-Z0-9]=([^,]+),");
     private final Logger logger = LoggerFactory.getLogger(proveTrustNode.class);
     private final Config config;
     private final Realm realm;
     private String username = null;
     private final HttpClientHandler handler;
+    private String loggerPrefix = "[Prove]";
 
 
     /**
@@ -101,10 +107,33 @@ public class proveTrustNode extends AbstractDecisionNode {
         default String url() {
             return "";
         }
-
         @Attribute(order = 200)
-        default String authToken() {
+        default String tokenUrl() {
             return "";
+        }
+
+        @Attribute(order = 300)
+        default String apiClientId() {
+            return "";
+        }
+
+        @Attribute(order = 325)
+        default String proveUsername() {
+            return "";
+        }
+        @Attribute(order = 350)
+        default String provePassword() {
+            return "";
+        }
+
+        @Attribute(order = 400)
+        default int trustScore() {
+            return 100;
+        }
+
+        @Attribute(order = 500)
+        default String identifierSharedState() {
+            return "userIdentifier";
         }
 
     }
@@ -134,47 +163,75 @@ public class proveTrustNode extends AbstractDecisionNode {
     @Override
     public Action process(TreeContext context) {
         try {
-          ActionBuilder action;
-          RandomStringGenerator generator = new RandomStringGenerator.Builder()
-             .withinRange('0', 'z').build();
-          String correlationId = generator.generate(20);
-          String requestId = generator.generate(20);
-          NodeState nodeState = context.getStateFor(this);
-          Request request = new Request();
-          URI uri = URI.create(config.url());
 
-          // Create the request data body
-          JsonValue parameters = new JsonValue(new LinkedHashMap<String, String>(1));
-          parameters.put("requestId", requestId);
-          parameters.put("consentStatus", "optedOut");
-          parameters.put("phoneNumber", nodeState.get("telephoneNumber"));
-          parameters.put("details", "true");
+            // Define the URL and data
+            String urlProve = config.tokenUrl();
+            String formData = "username="+config.proveUsername() +"&password="+config.provePassword()+"&grant_type=password";
 
-          request.setUri(uri);
-          request.setMethod("POST");
-          request.addHeaders(new GenericHeader("Authorization", "Bearer " + config.authToken()));
-          request.addHeaders(new GenericHeader("Accept", "application/json"));
-          request.addHeaders(new GenericHeader("Content-Type", "application/json"));
-          request.addHeaders(new GenericHeader("x-correlation-id", correlationId));
-          
-          request.setEntity(parameters);
+            // Create the HTTP client
+            HttpClient clientProve = HttpClient.newHttpClient();
 
-          
-          Response response = handler.handle(new RootContext(), request).getOrThrow();
-          JsonValue jsonResponse = new JsonValue(response.getEntity().getJson());
-          String status = jsonResponse.get("decision").asString();
-            if(status == "0") {
-              action = Action.goTo("True");
-              return action.build();
+            // Create the HTTP request
+            HttpRequest requestProve = HttpRequest.newBuilder()
+                    .uri(URI.create(urlProve))
+                    .header("accept", "application/json")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .POST(HttpRequest.BodyPublishers.ofString(formData))
+                    .build();
+
+            // Send the request and get the response
+            HttpResponse<String> responseProve = clientProve.send(requestProve, HttpResponse.BodyHandlers.ofString());
+
+            String access_token = null;
+
+            if (responseProve.statusCode() == 200) {
+                // Parse the response body as JSON
+                JSONObject jsonResponseProve = new JSONObject(responseProve.body());
+                
+                // Extract the token_type
+                access_token = jsonResponseProve.getString("access_token");
+
+                // Print the token_type
             } else {
-              action = Action.goTo("False");
-              return action.build();
+                logger.error("Failed to get a valid response. Status Code: " + responseProve.statusCode());
             }
-          } catch (Exception e) {
-            ActionBuilder action;
-            action = Action.goTo("Error");
-            return action.build();
-         } 
+
+            NodeState ns = context.getStateFor(this);
+            HttpClient httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(60)).build();
+            HttpRequest.Builder requestBuilder;
+            String userIdentifier = context.sharedState.get(config.identifierSharedState()).asString();
+            String uuid = UUID.randomUUID().toString();
+            requestBuilder = HttpRequest.newBuilder().POST(HttpRequest.BodyPublishers.ofString("{ \"requestId\": \""+uuid+"\", \"phoneNumber\": \""+userIdentifier+"\"}"));
+            
+            requestBuilder.header("accept", "application/json");
+            requestBuilder.header("api-client-id", config.apiClientId());
+            requestBuilder.header("content-type", "application/json");
+            requestBuilder.header("Authorization", "Bearer " + access_token);
+
+
+            String url = config.url() + "trust/v2";
+            HttpRequest request = requestBuilder.uri(URI.create(url)).timeout(Duration.ofSeconds(60)).build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            context.getStateFor(this).putTransient("responseBodyProve", response.body());
+            JSONObject jo = new JSONObject(response.body());
+            JSONObject resp = jo.getJSONObject("response");
+            int trustScore = resp.getInt("trustScore");
+            if(trustScore > config.trustScore()) {
+              return Action.goTo("True").build();
+            }
+
+            return Action.goTo("False").build();
+            
+        } catch(Exception ex) { 
+            String stackTrace = org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(ex);
+            logger.error(loggerPrefix + "Exception occurred: " + stackTrace);
+            context.getStateFor(this).putTransient(loggerPrefix + "Exception", new Date() + ": " + ex.getMessage());
+            context.getStateFor(this).putTransient(loggerPrefix + "StackTrace", new Date() + ": " + stackTrace);
+            return Action.goTo("Error").build();
+
+        }
         
     }
 

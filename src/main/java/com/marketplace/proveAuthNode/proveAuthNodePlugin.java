@@ -56,7 +56,7 @@ import org.forgerock.openam.plugins.PluginException;
  */
 public class proveAuthNodePlugin extends AbstractNodeAmPlugin {
 
-	static private String currentVersion = "1.0.0";
+	static private String currentVersion = "1.0.10";
 	
     /** 
      * Specify the Map of list of node classes that the plugin is providing. These will then be installed and
@@ -107,6 +107,9 @@ public class proveAuthNodePlugin extends AbstractNodeAmPlugin {
      */	
 	@Override
 	public void upgrade(String fromVersion) throws PluginException {
+        pluginTools.upgradeAuthNode(proveTrustNode.class);
+        pluginTools.upgradeAuthNode(proveSmsNode.class);
+        pluginTools.upgradeAuthNode(provePrefillNode.class);
 		super.upgrade(fromVersion);
 	}
 

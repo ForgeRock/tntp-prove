@@ -73,12 +73,34 @@ import org.forgerock.util.i18n.PreferredLocales;
 import org.forgerock.openam.auth.node.api.Action;
 import org.forgerock.openam.auth.node.api.Action.ActionBuilder;
 
+import org.forgerock.http.HttpApplicationException;
+import org.forgerock.http.handler.HttpClientHandler;
+import org.forgerock.http.header.GenericHeader;
+import org.forgerock.http.protocol.Request;
+import org.forgerock.http.protocol.Response;
+import org.forgerock.json.JsonValue;
+import org.forgerock.openam.auth.node.api.NodeProcessException;
+import org.forgerock.services.context.RootContext;
+import org.forgerock.util.thread.listener.ShutdownManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.forgerock.util.i18n.PreferredLocales;
+import org.forgerock.openam.auth.node.api.Action;
+import org.forgerock.openam.auth.node.api.Action.ActionBuilder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+import org.forgerock.openam.auth.node.api.Action;
+import org.json.JSONObject;
+import org.json.JSONArray;
+import org.forgerock.json.JsonValue;
 
 /**
  * A node that checks to see if zero-page login headers have specified username and whether that username is in a group
  * permitted to use zero-page login headers.
  */
-@Node.Metadata(outcomeProvider  = AbstractDecisionNode.OutcomeProvider.class,
+@Node.Metadata(outcomeProvider  = provePrefillNode.OutcomeProvider.class,
                configClass      = provePrefillNode.Config.class)
 public class provePrefillNode extends AbstractDecisionNode {
 
@@ -88,6 +110,7 @@ public class provePrefillNode extends AbstractDecisionNode {
     private final Realm realm;
     private String username = null;
     private final HttpClientHandler handler;
+    private String loggerPrefix = "[Prove]";
 
 
     /**
@@ -102,9 +125,34 @@ public class provePrefillNode extends AbstractDecisionNode {
             return "";
         }
 
-        @Attribute(order = 200)
-        default String authToken() {
+        @Attribute(order = 300)
+        default String apiClientId() {
             return "";
+        }
+        @Attribute(order = 310)
+        default String subClientId() {
+            return "";
+        }
+
+        @Attribute(order = 325)
+        default String proveUsername() {
+            return "";
+        }
+        @Attribute(order = 350)
+        default String provePassword() {
+            return "";
+        }
+        @Attribute(order = 400)
+        default Integer numberOfEmails() {
+            return 3;
+        }
+        @Attribute(order = 500)
+        default Integer numberOfAddresses() {
+            return 3;
+        }
+        @Attribute(order = 550)
+        default String identifierSharedState() {
+            return "userIdentifier";
         }
 
     }
@@ -134,46 +182,53 @@ public class provePrefillNode extends AbstractDecisionNode {
     @Override
     public Action process(TreeContext context) {
         try {
-          ActionBuilder action;
-          RandomStringGenerator generator = new RandomStringGenerator.Builder()
-             .withinRange('0', 'z').build();
-          String correlationId = generator.generate(20);
-          String requestId = generator.generate(20);
-          NodeState nodeState = context.getStateFor(this);
-          Request request = new Request();
-          URI uri = URI.create(config.url());
+            // Define the URL and JSON data
+          NodeState ns = context.getStateFor(this);
+            String url = config.url();
+            String uuid = UUID.randomUUID().toString();
+            String userIdentifier = context.sharedState.get(config.identifierSharedState()).asString();
+            String prove_dob = context.sharedState.get("prove_dob").asString();
+            String prove_last4 = context.sharedState.get("prove_last4").asString();
+            String prove_consentStatus = context.sharedState.get("prove_consentStatus").asString();
 
-          // Create the request data body
-          JsonValue parameters = new JsonValue(new LinkedHashMap<String, String>(1));
-          parameters.put("requestId", requestId);
-          parameters.put("consentStatus", "optedOut");
-          parameters.put("phoneNumber", nodeState.get("telephoneNumber"));
+            String jsonData = "{"
+                    + "\"requestId\": \"" + uuid + "\","
+                    + "\"consentStatus\": \"" + prove_consentStatus + "\","
+                    + "\"last4\": \"" + prove_last4 + "\","
+                    + "\"dob\": \"" + prove_dob + "\","
+                    + "\"numberOfAddresses\": \"" + config.numberOfAddresses() + "\","
+                    + "\"numberOfEmails\": \"" + config.numberOfEmails() + "\","
+                    + "\"phoneNumber\": \"" + userIdentifier + "\""
+                    + "}";
 
-          request.setUri(uri);
-          request.setMethod("POST");
-          request.addHeaders(new GenericHeader("Authorization", "Bearer " + config.authToken()));
-          request.addHeaders(new GenericHeader("Accept", "application/json"));
-          request.addHeaders(new GenericHeader("Content-Type", "application/json"));
-          request.addHeaders(new GenericHeader("x-correlation-id", correlationId));
-          
-          request.setEntity(parameters);
+            // Create the HTTP client
+            HttpClient client = HttpClient.newHttpClient();
 
-          
-          Response response = handler.handle(new RootContext(), request).getOrThrow();
-          JsonValue jsonResponse = new JsonValue(response.getEntity().getJson());
-          JsonValue individual = jsonResponse.get("response").get("individual");
-          JsonValue objectAttributes = nodeState.get("objectAttributes");
-          for (JsonValue obj : individual) {
-              logger.error(obj.toString());
-              objectAttributes.put("key", obj.toString());
-          }
-          nodeState.putShared("objectAttributes", objectAttributes);
-          action = Action.goTo("True");
-          return action.build();
+            // Create the HTTP request
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("accept", "application/json")
+                    .header("api-client-id", config.apiClientId())
+                    .header("content-type", "application/json")
+                    .header("sub-client-id", config.subClientId()) 
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonData))
+                    .build();
+
+            // Send the request and get the response
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            JSONObject jsonResponse = new JSONObject(response.body());
+            JSONObject individual = jsonResponse
+                        .getJSONObject("response")
+                        .optJSONObject("individual");
+
+                // Convert "individual" to a string
+            String individualString = (individual != null) ? individual.toString() : null;
+            context.getStateFor(this).putTransient("proveIndividual", individualString);
+            return Action.goTo("True").build();
+
           } catch (Exception e) {
-            ActionBuilder action;
-            action = Action.goTo("Error");
-            return action.build();
+            return Action.goTo("Error").build();
          } 
         
     }
