@@ -104,7 +104,6 @@ import org.forgerock.json.JsonValue;
                configClass      = provePrefillNode.Config.class)
 public class provePrefillNode extends AbstractDecisionNode {
 
-    private final Pattern DN_PATTERN = Pattern.compile("^[a-zA-Z0-9]=([^,]+),");
     private final Logger logger = LoggerFactory.getLogger(provePrefillNode.class);
     private final Config config;
     private final Realm realm;
