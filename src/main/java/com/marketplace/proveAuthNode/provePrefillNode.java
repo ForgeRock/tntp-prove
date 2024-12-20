@@ -223,8 +223,11 @@ public class provePrefillNode extends AbstractDecisionNode {
 
                 // Convert "individual" to a string
             String individualString = (individual != null) ? individual.toString() : null;
-            context.getStateFor(this).putTransient("proveIndividual", individualString);
-            return Action.goTo("True").build();
+            if(individualString != null) {
+                context.getStateFor(this).putTransient("proveIndividual", individualString);
+                return Action.goTo("True").build();
+            }
+            return Action.goTo("False").build();
 
           } catch (Exception e) {
             return Action.goTo("Error").build();
