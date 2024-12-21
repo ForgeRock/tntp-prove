@@ -1,42 +1,113 @@
-<!--
- * The contents of this file are subject to the terms of the Common Development and
- * Distribution License (the License). You may not use this file except in compliance with the
- * License.
- *
- * You can obtain a copy of the License at legal/CDDLv1.0.txt. See the License for the
- * specific language governing permission and limitations under the License.
- *
- * When distributing Covered Software, include this CDDL Header Notice in each file and include
- * the License file at legal/CDDLv1.0.txt. If applicable, add the following below the CDDL
- * Header, with the fields enclosed by brackets [] replaced by your own identifying
- * information: "Portions copyright [year] [name of copyright owner]".
- *
- * Copyright 2024 ForgeRock AS.
--->
-# proveAuthNode
+# Prove Auth Node
 
-A simple authentication node for ForgeRock's [Identity Platform][forgerock_platform] 7.5.0 and above. This node... **SHORT DESCRIPTION HERE**
+An authentication decision node that interacts with Prove trust and prefill capabilities.
 
+## Compatibility
 
-Copy the .jar file from the ../target directory into the ../web-container/webapps/openam/WEB-INF/lib directory where AM is deployed.  Restart the web container to pick up the new node.  The node will then appear in the authentication trees components palette.
+You can implement this node on the following systems:
 
+| Product                               | Compatible? |
+|---------------------------------------|-------------|
+| ForgeRock Identity Cloud              | Yes         |
+| ForgeRock Access Management (self-managed) | Yes    |
+| ForgeRock Identity Platform (self-managed) | Yes    |
 
-**USAGE HERE**
+---
 
+## Prove Trust Node
 
-The code in this repository has binary dependencies that live in the ForgeRock maven repository. Maven can be configured to authenticate to this repository by following the following [ForgeRock Knowledge Base Article](https://backstage.forgerock.com/knowledge/kb/article/a74096897).
+### Overview
 
-**SPECIFIC BUILD INSTRUCTIONS HERE**
+Prove’s Trust Score is a real-time indicator of a phone number’s trustworthiness. It measures the real-time risk of authenticating a consumer using a specific phone number. Trust Score achieves this by analyzing and scoring daily life cycle change events and leveraging carrier signals and core telecom infrastructure signals. This enables Prove® to manage the tenure identity behind the phone number. Trust Score also augments possession and ownership indicators in other Prove APIs, completing the Possession-Reputation-Ownership (PRO) Model℠ to assist customers in detecting and understanding potential fraud risks.
 
-**SCREENSHOTS ARE GOOD LIKE BELOW**
+### Inputs
 
-![ScreenShot](./example.png)
+This node requires the following inbound data:
 
-        
-The sample code described herein is provided on an "as is" basis, without warranty of any kind, to the fullest extent permitted by law. ForgeRock does not warrant or guarantee the individual success developers may have in implementing the sample code on their development platforms or in production configurations.
+| Description         | Attribute Name  | Source       |
+|---------------------|-----------------|--------------|
+| Telephone Number    | `telephoneNumber` | Shared state |
 
-ForgeRock does not warrant, guarantee or make any representations regarding the use, results of use, accuracy, timeliness or completeness of any data or information relating to the sample code. ForgeRock disclaims all warranties, expressed or implied, and in particular, disclaims all warranties of merchantability, and warranties related to the code, or any service or software related thereto.
+### Dependencies
 
-ForgeRock shall not be liable for any direct, indirect or consequential damages or costs of any type arising out of any action taken by you or others related to the sample code.
+To use this node, you must have already set up Identity Cloud integration with Prove.
 
-[forgerock_platform]: https://www.forgerock.com/platform/  
+### Configuration
+
+The configurable properties for this node are:
+
+| Property              | Usage                       |
+|-----------------------|-----------------------------|
+| `url`                 | Prove Trust API URL         |
+| `tokenUrl`            | Prove Token URL             |
+| `apiClientId`         | Prove API Client ID         |
+| `proveUsername`       | Prove Username              |
+| `provePassword`       | Prove Password              |
+| `trustScore`          | Minimum Prove trust score   |
+| `identifierSharedState` | Shared state key where the phone number is stored |
+
+### Outputs
+
+#### Outcomes
+
+| Outcome  | Description                           |
+|----------|---------------------------------------|
+| `True`   | User is trustworthy                   |
+| `False`  | User is not trustworthy               |
+| `Error`  | An error message is output to the shared state |
+
+---
+
+## Prove Prefill Node
+
+### Overview
+
+The Prove Pre-Fill solution leverages the power of phones and phone numbers to modernize onboarding experiences. It delivers digital identities and data from trusted data providers, with consumer consent, to enhance application velocity while mitigating identity fraud.
+
+### Inputs
+
+This node requires the following inbound data:
+
+| Description         | Attribute Name  | Source       |
+|---------------------|-----------------|--------------|
+| Telephone Number    | `userIdentifier` | Shared state |
+| Date of Birth       | `proveDob`       | Shared state |
+
+### Dependencies
+
+To use this node, you must have already set up Identity Cloud integration with Prove.
+
+### Configuration
+
+The configurable properties for this node are:
+
+| Property              | Usage                       |
+|-----------------------|-----------------------------|
+| `url`                 | Prove API URL              |
+| `apiClientId`         | Prove API Client ID        |
+| `subClientId`         | Prove Sub Client ID        |
+| `proveUsername`       | Prove Username             |
+| `provePassword`       | Prove Password             |
+| `numberOfEmail`       | Prove Number of Emails     |
+| `numberOfAddresses`   | Prove Number of Addresses  |
+| `identifierSharedState` | Shared state key where the phone number is stored |
+
+### Outputs
+
+| Attribute          | Description                           |
+|--------------------|---------------------------------------|
+| `proveIndividual`  | The attributes of the user found by Prove |
+
+#### Outcomes
+
+| Outcome  | Description                           |
+|----------|---------------------------------------|
+| `True`   | Individual successfully identified for prefill |
+| `False`  | Individual not found                  |
+| `Error`  | An error message is output to the shared state |
+
+---
+
+## Troubleshooting
+
+If this node logs an error, review the log messages for the transaction to find the reason for the exception.
