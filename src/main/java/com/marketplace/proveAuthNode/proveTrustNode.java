@@ -225,7 +225,7 @@ public class proveTrustNode extends AbstractDecisionNode {
             return Action.goTo("False").build();
             
         } catch(Exception ex) { 
-            String stackTrace = org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(ex);
+            String stackTrace = org.apache.commons.lang3.exception.ExceptionUtils.getStackTrace(ex);
             logger.error(loggerPrefix + "Exception occurred: " + stackTrace);
             context.getStateFor(this).putTransient(loggerPrefix + "Exception", new Date() + ": " + ex.getMessage());
             context.getStateFor(this).putTransient(loggerPrefix + "StackTrace", new Date() + ": " + stackTrace);
