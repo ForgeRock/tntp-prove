@@ -23,7 +23,7 @@
     <artifactId>proveAuthNode</artifactId>
 
     <groupId>com.proveAuthNode</groupId>
-    <version>1.0.12</version>    
+    <version>1.0.13</version>    
     <name>Template for an Auth Tree Node maven project</name>
     <description>An Authentication Tree Node for ForgeRock's Identity Platform</description>
 
@@ -95,7 +95,11 @@
           <artifactId>commons-text</artifactId>
           <version>1.12.0</version>
         </dependency>
-    </dependencies>
+            <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+</dependencies>
 
     <repositories>
         <repository>
